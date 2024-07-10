@@ -1,17 +1,31 @@
 const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
+const fs = require('fs');
 
 (async () => {
     const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
+    const rows = [];
 
     for (const url of await get_match_urls(page)) {
-        console.log(url);
-        const details = await get_match_details(page, url);
-        break;
+        const round = url.split('/')[6];
+        const season = url.split('/')[5];
+        const matchDetails = await get_match_details(page, url);
+        
+        // Create or update the row for the season and round
+        const row = rows.find(r => r[season]) || {};
+        row[season] = row[season] || {};
+        row[season][round] = row[season][round] || {};
+        row[season][round][url] = matchDetails;
+
+        rows.push(row);
     }
     await browser.close();
 
+    const jsonData = JSON.stringify(rows, null, 2);
+  
+    // Write to a JSON file
+    fs.writeFileSync('output.json', jsonData);
 })();
 
 async function get_match_urls(page, round=1, season=2010) {
@@ -46,8 +60,6 @@ async function get_match_urls(page, round=1, season=2010) {
 };
 
 async function get_match_details(page, url) {
-    const round = url.split('/')[6];
-    const season = url.split('/')[5];
     await page.goto(url, { waitUntil: 'networkidle2' })
     const content = await page.content();
     const $ = cheerio.load(content, { xmlMode: false, decodeEntities: true });
@@ -64,8 +76,8 @@ async function get_match_details(page, url) {
     const figure_stats = parse_figure_stats($, 'div.match-centre-card-donut');
     const bar_stats = parse_bar_stats($, 'dl.u-display-flex');
 
-    const row = {'match_link' : url, 'round': round, 'season': season, 'stadium': stadium, 'home_team' : home_team, 'away_team' : away_team, 'match_date' : date, ...venue_stats, 'home_score' : home_score, 'away_score' : away_score, 'home_possession' : home_posession, 'away_possession' : away_posession, ...summary_stats, ...figure_stats, ...bar_stats};
-
+    const row = {'stadium': stadium, 'home_team' : home_team, 'away_team' : away_team, 'match_date' : date, ...venue_stats, 'home_score' : home_score, 'away_score' : away_score, 'home_possession' : home_posession, 'away_possession' : away_posession, ...summary_stats, ...figure_stats, ...bar_stats};
+    return row;
 }
 
 function parse_venue_stats(str) {

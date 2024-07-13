@@ -2,54 +2,51 @@ const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const fs = require('fs');
 
-// let data = { seasons: {} }
-
-// process.on('SIGINT', async () => {
-//     console.log('Keyboard interrupt detected. Saving Data...');
-//     await savetojson(data);
-// });
-
 
 (async () => {
     const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
     var last_season = '0';
-    const scraper = new nrlScraper()
+    const scraper = new nrlScraper();
 
-    for (const url of await scraper.get_match_urls(page)) {
-        const split_url = url.split('/');
-        const round = split_url[6];
-        const season = split_url[5];
-        const teams = split_url[7];
-        const matchDetails = await scraper.get_match_details(page, url);
-        
-        if (!scraper.data.seasons[season]) {
-            scraper.data.seasons[season] = {};
+    try {
+        for (const url of await scraper.get_match_urls(page)) {
+            const split_url = url.split('/');
+            const round = split_url[6];
+            const season = split_url[5];
+            const teams = split_url[7];
+            const matchDetails = await scraper.get_match_details(page, url);
+            
+            if (!scraper.data.seasons[season]) {
+                scraper.data.seasons[season] = {};
+            }
+
+            // Ensure the round property is initialized
+            if (!scraper.data.seasons[season][round]) {
+                scraper.data.seasons[season][round] = {};
+            }
+
+            // Add match details
+            scraper.data.seasons[season][round][teams] = matchDetails;
+
+            if (last_season !== season) {
+                last_season = season;
+                console.log(`Starting ${last_season}`);
+            }
         }
-
-        // Ensure the round property is initialized
-        if (!scraper.data.seasons[season][round]) {
-            scraper.data.seasons[season][round] = {};
-        }
-
-        // Add match details
-        scraper.data.seasons[season][round][teams] = matchDetails;
-
-        if (last_season !== season) {
-            last_season = season;
-            console.log(last_season);
-        }
+    } catch (error) {
+        console.log(error);
+    } finally {
+        await browser.close();
+        scraper.savetojson(scraper.data);
     }
-    await browser.close();
-    scraper.savetojson(scraper.data);
-    process.exit();
 })();
 
 class nrlScraper {
     constructor(save_file='data/raw_nrl_data.json', season=2010, round=1, data={ seasons: {} }) {
         this.save_file = save_file;
         try {
-            const data = this.getSavedData(save_file);
+            data = this.getSavedData(save_file);
             const result = this.getLastDataItem(data);
             season = result[0];
             round = result[1].split('-')[1];
@@ -80,6 +77,21 @@ class nrlScraper {
     savetojson(rows) {
         const jsonData = JSON.stringify(rows, null, 2);
         fs.writeFileSync(this.save_file, jsonData);
+    }
+
+    async gotoWithRetries(page, url, retries = 3) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                await page.goto(url, { timeout: 60000 });
+                return;
+            } catch (err) {
+                console.log(`Attempt ${i + 1} to load ${url} failed: ${err.message}`);
+                if (i === retries - 1) {
+                    throw err;
+                }
+                await new Promise(res => setTimeout(res, 1000));
+            }
+        }
     }
 
     async get_match_urls(page, season=this.season, round=this.round) {
@@ -118,7 +130,7 @@ class nrlScraper {
     };
 
     async get_match_details(page, url) {
-        await page.goto(url,  { timeout: 60000 })
+        await this.gotoWithRetries(page, url)
         const content = await page.content();
         const $ = cheerio.load(content, { xmlMode: false, decodeEntities: true });
         const home_team = $('p.match-team__name.match-team__name--home').text().trim();

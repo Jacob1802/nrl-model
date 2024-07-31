@@ -6,9 +6,10 @@ const fs = require('fs');
 (async () => {
     const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
-    var last_season = '0';
     const scraper = new nrlScraper();
-
+    var last_season = scraper.season;
+    console.log(`Starting at season: ${scraper.season}`)
+    console.log("Gathering match urls")
     try {
         for (const url of await scraper.get_match_urls(page)) {
             const split_url = url.split('/');
@@ -28,10 +29,10 @@ const fs = require('fs');
 
             // Add match details
             scraper.data.seasons[season][round][teams] = matchDetails;
-
-            if (last_season !== season) {
+            // parse int & plus 1 for last season
+            if (parseInt(last_season) + 1 === parseInt(season)) {
+                console.log(`Completed ${last_season}`);
                 last_season = season;
-                console.log(`Starting ${last_season}`);
             }
         }
     } catch (error) {
@@ -51,7 +52,7 @@ class nrlScraper {
             season = result[0];
             round = result[1].split('-')[1];
         } catch (error) {
-            console.log('Not existing data found');
+            console.log('No existing data found');
         }
         this.data = data;
         this.season = season;
